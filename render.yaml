@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: gestor-gastos-flask
+    env: python
+    # Le dice a Render cómo instalar y CÓMO INICIAR LA BD
+    buildCommand: "pip install -r requirements.txt; flask init-db"
+    # Le dice a Render cómo correr tu app
+    startCommand: "gunicorn app:app"
+    
+    # ¡La parte clave! Crea un disco persistente
+    disks:
+      - name: gestor-db-disk
+        # Dónde "montar" el disco en el servidor
+        mountPath: /var/data
+        
+    # Variables de Entorno
+    envVars:
+      # Le dice a tu app.py dónde guardar el archivo .db
+      - key: DATABASE_URL
+        value: /var/data/gastos.db
+      # Le dice a Flask que corra en modo producción
+      - key: FLASK_ENV
+        value: production

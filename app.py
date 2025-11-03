@@ -4,6 +4,7 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify, f
 import calendar 
 import locale 
 import click 
+import os
 # --- ¡NUEVOS IMPORTS! ---
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
 from flask_bcrypt import Bcrypt
@@ -12,7 +13,7 @@ app = Flask(__name__)
 # --- ¡NUEVO! Llave secreta para las sesiones ---
 # (En producción, esto debería ser un secreto real)
 app.config['SECRET_KEY'] = 'mi-llave-secreta-muy-segura-12345'
-DATABASE = 'gastos.db'
+DATABASE_PATH = os.environ.get('DATABASE_URL', 'gastos.db')
 
 # --- ¡NUEVO! Inicializar Bcrypt y LoginManager ---
 bcrypt = Bcrypt(app)
@@ -89,7 +90,7 @@ def set_locale():
 
 # --- Conexión a BD (sin cambios) ---
 def get_db_connection():
-    conn = sqlite3.connect(DATABASE)
+    conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
