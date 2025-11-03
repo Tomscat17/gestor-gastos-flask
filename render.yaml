@@ -1,23 +1,28 @@
+# 1. Definir el disco en el nivel superior (¡AQUÍ ESTÁ EL ARREGLO!)
+disks:
+  - name: gestor-db-disk
+    mountPath: /var/data
+    sizeGB: 1 # El tamaño mínimo gratis
+
+# 2. Definir el servicio
 services:
   - type: web
     name: gestor-gastos-flask
     env: python
-    # Le dice a Render cómo instalar y CÓMO INICIAR LA BD
+    pythonVersion: 3.11.0 # Le decimos a Render qué versión de Python usar
+    
+    # 3. Vincular el disco aquí (ahora se llama 'disk' en singular)
+    disk:
+      name: gestor-db-disk
+      mountPath: /var/data
+      
+    # Comandos de construcción e inicio
     buildCommand: "pip install -r requirements.txt; flask init-db"
-    # Le dice a Render cómo correr tu app
     startCommand: "gunicorn app:app"
     
-    # ¡La parte clave! Crea un disco persistente
-    disks:
-      - name: gestor-db-disk
-        # Dónde "montar" el disco en el servidor
-        mountPath: /var/data
-        
     # Variables de Entorno
     envVars:
-      # Le dice a tu app.py dónde guardar el archivo .db
       - key: DATABASE_URL
-        value: /var/data/gastos.db
-      # Le dice a Flask que corra en modo producción
+        value: /var/data/gastos.db # Apunta a la ruta del disco
       - key: FLASK_ENV
         value: production
