@@ -1,0 +1,22 @@
+# Entorno Virtual de Python
+venv/
+.venv/
+
+# Bases de datos de SQLite
+# (Aunque ya borramos gastos.db, esto previene que se suba si lo volvemos a crear)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Caché de Python
+__pycache__/
+pycache/
+*.pyc
+
+# Archivos de configuración local (buena práctica)
+.env
+
+# Archivos de IDE/Editor (opcional pero recomendado)
+.vscode/
+.idea/

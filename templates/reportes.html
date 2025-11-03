@@ -1,0 +1,147 @@
+<!-- Heredamos de la plantilla base -->
+{% extends "base.html" %}
+
+<!-- Definimos el título de esta página -->
+{% block title %}Reportes - MiGestorPro{% endblock %}
+
+<!-- Ponemos el Filtro de Fecha en el bloque 'header_actions' -->
+{% block header_actions %}
+<form id="filter-form" action="{{ url_for('reportes') }}" method="GET" class="flex items-center gap-2">
+    <div>
+        <select id="mes-select" name="mes" class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+            {% for mes in meses_del_ano %}
+                <option value="{{ mes.val }}" {% if mes.val == mes_seleccionado %}selected{% endif %}>
+                    {{ mes.nom }}
+                </option>
+            {% endfor %}
+        </select>
+    </div>
+    <div>
+        <select id="ano-select" name="ano" class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+            {% for ano in anos_disponibles %}
+                <option value="{{ ano }}" {% if ano|string == ano_seleccionado %}selected{% endif %}>
+                    {{ ano }}
+                </option>
+            {% endfor %}
+        </select>
+    </div>
+    <button type="submit"
+            class="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
+        Filtrar
+    </button>
+</form>
+{% endblock %}
+
+
+<!-- Ponemos el contenido principal en el bloque 'content' -->
+{% block content %}
+<div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+    
+    <!-- ¡NUEVO! Gráfico de Flujo Anual -->
+    <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+        <h2 class="text-xl font-bold mb-4 text-gray-900">Flujo Anual (Año {{ ano_seleccionado }})</h2>
+        <div class="relative h-96">
+            <canvas id="annualFlowChart"></canvas>
+        </div>
+    </div>
+    
+    <!-- Gráfico de Torta Mensual (existente) -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-xl font-bold mb-4 text-gray-900">Distribución de Gastos ({{ meses_del_ano[mes_seleccionado|int - 1].nom }} {{ ano_seleccionado }})</h2>
+        <div class="relative h-96"> 
+            <canvas id="categoryChart"></canvas>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+<!-- Ponemos los scripts de los gráficos en el bloque 'scripts' -->
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    
+    // Leemos el filtro del header para las APIs
+    const mes = document.getElementById('mes-select').value;
+    const ano = document.getElementById('ano-select').value;
+    const apiFilterMes = `?mes=${mes}&ano=${ano}`;
+    const apiFilterAno = `?ano=${ano}`; // <-- Nuevo filtro solo para el año
+
+    // --- 1. Fetch para el Gráfico de Torta (Mensual) ---
+    fetch('/api/chart-data/categories' + apiFilterMes)
+        .then(response => response.json())
+        .then(data => {
+            const categoryChartCanvas = document.getElementById('categoryChart');
+            const ctx = categoryChartCanvas.getContext('2d');
+            
+            if (!data.labels || data.labels.length === 0) {
+                const parent = categoryChartCanvas.parentElement;
+                parent.classList.add('flex', 'items-center', 'justify-center');
+                parent.innerHTML = '<div class="text-gray-500">No hay gastos para este mes.</div>';
+                return;
+            }
+            
+            new Chart(ctx, {
+                type: 'pie', 
+                data: {
+                    labels: data.labels, 
+                    datasets: [{
+                        label: 'Gastos por Categoría',
+                        data: data.data, 
+                        backgroundColor: [ '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF', '#FDB45C', '#4D5360' ],
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false, 
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.parsed || 0;
+                                    const sum = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = sum > 0 ? (value / sum * 100).toFixed(1) + '%' : '0%';
+                                    return ` ${label}: ${formatCurrency(value)} (${percentage})`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        })
+        .catch(error => console.error('Error al cargar datos del gráfico de categorías:', error));
+
+    // --- 2. ¡NUEVO! Fetch para el Gráfico de Barras (Anual) ---
+    fetch('/api/chart-data/annual-flow' + apiFilterAno)
+        .then(response => response.json())
+        .then(data => {
+            const annualCtx = document.getElementById('annualFlowChart').getContext('2d');
+            new Chart(annualCtx, {
+                type: 'bar',
+                data: {
+                    labels: data.labels, // ['Ene', 'Feb', 'Mar', ...]
+                    datasets: data.datasets // [{label: 'Gastos', ...}, {label: 'Ingresos', ...}]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { ticks: { callback: value => formatCurrency(value) } }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: context => ` ${context.dataset.label}: ${formatCurrency(context.parsed.y)}`
+                            }
+                        }
+                    }
+                }
+            });
+        })
+        .catch(error => console.error('Error al cargar datos del gráfico anual:', error));
+});
+</script>
+{% endblock %}

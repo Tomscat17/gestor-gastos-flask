@@ -1,0 +1,75 @@
+<!-- Heredamos de la plantilla base -->
+{% extends "base.html" %}
+
+<!-- Definimos el título de esta página -->
+{% block title %}Configurar Presupuestos - MiGestorPro{% endblock %}
+
+<!-- Ponemos el contenido principal en el bloque 'content' -->
+{% block content %}
+<div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        
+        <!-- Columna 1: Formulario para Agregar/Actualizar Presupuesto -->
+        <div class="md:col-span-1">
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <h2 class="text-xl font-bold mb-4 text-gray-900">Fijar Presupuesto Mensual</h2>
+                <form action="{{ url_for('presupuestos') }}" method="POST" class="space-y-4">
+                    <div>
+                        <label for="categoria" class="block text-sm font-medium text-gray-700">Categoría</label>
+                        <!-- ¡¡¡MODIFICADO!!! Ahora usa la variable global 'categorias_globales' -->
+                        <select id="categoria" name="categoria" required
+                                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                            {% for cat in categorias_globales %}
+                                <option value="{{ cat }}">{{ cat }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label for="monto_maximo" class="block text-sm font-medium text-gray-700">Monto Máximo (Mensual)</label>
+                        <input type="number" id="monto_maximo" name="monto_maximo" step="0.01" min="0.01" required
+                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                               placeholder="Ej: 100000">
+                    </div>
+                    <button type="submit"
+                            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
+                        Guardar Presupuesto
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Columna 2: Tabla de Presupuestos Actuales -->
+        <div class="md:col-span-2">
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <h2 class="text-xl font-bold mb-4 text-gray-900">Presupuestos Actuales</h2>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoría</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Monto Máximo</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <!-- ¡¡¡MODIFICADO!!! Ahora usa la variable global 'categorias_globales' -->
+                            {% for cat in categorias_globales %}
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ cat }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    {% if cat in presupuestos_guardados %}
+                                        {{ presupuestos_guardados[cat] | currency }}
+                                    {% else %}
+                                        <span class="text-gray-400 italic">No fijado</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}

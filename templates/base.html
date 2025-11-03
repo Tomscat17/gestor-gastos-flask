@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full bg-gray-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Gestor de Gastos{% endblock %}</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    {% block head %}{% endblock %}
+</head>
+<body class="h-full">
+    <div class="min-h-full">
+        <!-- Header Principal y Navegación -->
+        <header class="bg-white shadow-sm">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between items-center h-16">
+                    <!-- Título y Navegación -->
+                    <div class="flex items-center gap-8">
+                        <a href="{{ url_for('index') }}" class="text-2xl font-bold text-indigo-600">
+                            MiGestorPro
+                        </a>
+                        <!-- ¡¡¡MENÚ MODIFICADO!!! -->
+                        <nav class="flex gap-4">
+                            {% if current_user.is_authenticated %}
+                                <!-- Links para usuarios logueados -->
+                                <a href="{{ url_for('index') }}" 
+                                   class="font-medium {% if request.path == '/' %}text-indigo-600 border-b-2 border-indigo-500{% else %}text-gray-500 hover:text-gray-700{% endif %}">
+                                    Dashboard
+                                </a>
+                                <a href="{{ url_for('presupuestos') }}" 
+                                   class="font-medium {% if request.path == '/presupuestos' %}text-indigo-600 border-b-2 border-indigo-500{% else %}text-gray-500 hover:text-gray-700{% endif %}">
+                                    Presupuestos
+                                </a>
+                                <a href="{{ url_for('reportes') }}" 
+                                   class="font-medium {% if request.path == '/reportes' %}text-indigo-600 border-b-2 border-indigo-500{% else %}text-gray-500 hover:text-gray-700{% endif %}">
+                                    Reportes
+                                </a>
+                                <a href="{{ url_for('configuracion') }}" 
+                                   class="font-medium {% if request.path == '/configuracion' %}text-indigo-600 border-b-2 border-indigo-500{% else %}text-gray-500 hover:text-gray-700{% endif %}">
+                                    Configuración
+                                </a>
+                            {% endif %}
+                        </nav>
+                    </div>
+                    
+                    <div class="flex items-center gap-4">
+                        <!-- Bloque para acciones del header (como el filtro) -->
+                        <div class="flex-shrink-0">
+                            {% block header_actions %}{% endblock %}
+                        </div>
+
+                        <!-- ¡¡¡NUEVO!!! Links de Usuario -->
+                        <div class="flex-shrink-0">
+                            {% if current_user.is_authenticated %}
+                                <span class="text-sm text-gray-500 hidden sm:inline-block mr-4">{{ current_user.email }}</span>
+                                <a href="{{ url_for('logout') }}" class="text-sm font-medium text-red-600 hover:text-red-800">
+                                    Cerrar Sesión
+                                </a>
+                            {% else %}
+                                <a href="{{ url_for('login') }}" class="text-sm font-medium text-gray-600 hover:text-indigo-600 mr-4">
+                                    Iniciar Sesión
+                                </a>
+                                <a href="{{ url_for('register') }}" class="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
+                                    Registrarse
+                                </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <!-- ¡¡¡NUEVO!!! Sección para mensajes flash -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                <div class="max-w-7xl mx-auto py-4 sm:px-6 lg:px-8">
+                    {% for category, message in messages %}
+                        <!-- Mapeamos categorías a colores de Tailwind -->
+                        {% set color = 'blue' if category == 'info' else 'green' if category == 'success' else 'yellow' if category == 'warning' else 'red' %}
+                        <div class="bg-{{ color }}-100 border-l-4 border-{{ color }}-500 text-{{ color }}-700 p-4 rounded-md shadow-sm" role="alert">
+                            <p>{{ message }}</p>
+                        </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            {% endwith %}
+            
+            <!-- El contenido de cada página irá aquí -->
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <!-- Modal de Edición (¡MODIFICADO!) -->
+    <!-- Solo lo mostramos si el usuario está logueado -->
+    {% if current_user.is_authenticated %}
+    <div id="edit-modal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true" onclick="closeEditModal()"></div>
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <form id="edit-form" method="POST"> 
+                    <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900" id="modal-title">
+                            Editar Transacción
+                        </h3>
+                        <div class="mt-4 space-y-4">
+                            <!-- Campos: fecha, descripcion, monto, tipo -->
+                            <div>
+                                <label for="edit-fecha" class="block text-sm font-medium text-gray-700">Fecha</label>
+                                <input type="date" id="edit-fecha" name="edit-fecha" required
+                                       class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                            </div>
+                            <div>
+                                <label for="edit-descripcion" class="block text-sm font-medium text-gray-700">Descripción</label>
+                                <input type="text" id="edit-descripcion" name="edit-descripcion" required
+                                       class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                            </div>
+                            <div>
+                                <label for="edit-monto" class="block text-sm font-medium text-gray-700">Monto</label>
+                                <input type="number" id="edit-monto" name="edit-monto" step="0.01" min="0.01" required
+                                       class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                            </div>
+                            <div>
+                                <label for="edit-tipo" class="block text-sm font-medium text-gray-700">Tipo</label>
+                                <select id="edit-tipo" name="edit-tipo" onchange="toggleEditCategoria()"
+                                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                                    <option value="gasto">Gasto</option>
+                                    <option value="ingreso">Ingreso</option>
+                                </select>
+                            </div>
+                            <div id="edit-categoria-div">
+                                <label for="edit-categoria" class="block text-sm font-medium text-gray-700">Categoría</label>
+                                <select id="edit-categoria" name="edit-categoria"
+                                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                                    <!-- Usa la variable global de categorías del usuario -->
+                                    {% for cat in categorias_globales %}
+                                    <option value="{{ cat }}">{{ cat }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Botones -->
+                    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                        <button type="submit"
+                                class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 sm:ml-3 sm:w-auto sm:text-sm">
+                            Guardar Cambios
+                        </button>
+                        <button type="button" onclick="closeEditModal()"
+                                class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                            Cancelar
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    <!-- Fin del Modal -->
+
+    <!-- Scripts globales (modal, etc.) -->
+    <script>
+        function toggleEditCategoria() {
+            try {
+                const tipo = document.getElementById('edit-tipo').value;
+                const catDiv = document.getElementById('edit-categoria-div');
+                catDiv.style.display = (tipo === 'gasto') ? 'block' : 'none';
+            } catch (e) { }
+        }
+        function openEditModal(btn) {
+            const id = btn.dataset.id;
+            document.getElementById('edit-form').action = `/update/${id}`;
+            document.getElementById('edit-fecha').value = btn.dataset.fecha;
+            document.getElementById('edit-descripcion').value = btn.dataset.descripcion;
+            document.getElementById('edit-monto').value = btn.dataset.monto;
+            document.getElementById('edit-tipo').value = btn.dataset.tipo;
+            document.getElementById('edit-categoria').value = btn.dataset.categoria;
+            toggleEditCategoria();
+            document.getElementById('edit-modal').classList.remove('hidden');
+        }
+        function closeEditModal() {
+            document.getElementById('edit-modal').classList.add('hidden');
+        }
+        function formatCurrency(value) {
+            return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', minimumFractionDigits: 0 }).format(value);
+        }
+    </script>
+    
+    {% block scripts %}{% endblock %}
+</body>
+</html>

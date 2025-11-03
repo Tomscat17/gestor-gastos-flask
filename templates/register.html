@@ -1,0 +1,55 @@
+<!-- Heredamos de la plantilla base -->
+{% extends "base.html" %}
+
+{% block title %}Crear Cuenta - MiGestorPro{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex items-center justify-center bg-gray-100 py-12 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-md w-full space-y-8">
+        <div>
+            <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
+                Crea una nueva cuenta
+            </h2>
+        </div>
+        <form class="mt-8 space-y-6" action="{{ url_for('register') }}" method="POST">
+            <div class="rounded-md shadow-sm -space-y-px">
+                <div>
+                    <label for="email" class="sr-only">Email</label>
+                    <input id="email" name="email" type="email" autocomplete="email" required
+                           class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                           placeholder="Correo electrónico">
+                </div>
+                <div>
+                    <label for="password" class="sr-only">Contraseña</label>
+                    <!-- ¡MODIFICADO! Esta ya no es la última, así que quitamos rounded-b-md -->
+                    <input id="password" name="password" type="password" autocomplete="new-password" required
+                           class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                           placeholder="Contraseña">
+                </div>
+                <!-- ¡¡¡NUEVO CAMPO!!! -->
+                <div>
+                    <label for="confirm_password" class="sr-only">Reingresar Contraseña</label>
+                    <input id="confirm_password" name="confirm_password" type="password" autocomplete="new-password" required
+                           class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                           placeholder="Reingresar Contraseña">
+                </div>
+            </div>
+            
+            <div class="flex items-center justify-between">
+                <div class="text-sm">
+                    <a href="{{ url_for('login') }}" class="font-medium text-indigo-600 hover:text-indigo-500">
+                        ¿Ya tienes una cuenta? Inicia Sesión
+                    </a>
+                </div>
+            </div>
+
+            <div>
+                <button type="submit"
+                        class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                    Registrarse
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

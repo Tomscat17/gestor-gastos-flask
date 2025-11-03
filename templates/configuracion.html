@@ -1,0 +1,69 @@
+<!-- Heredamos de la plantilla base -->
+{% extends "base.html" %}
+
+<!-- Definimos el título de esta página -->
+{% block title %}Configuración - MiGestorPro{% endblock %}
+
+<!-- Ponemos el contenido principal en el bloque 'content' -->
+{% block content %}
+<div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        
+        <!-- Columna 1: Formulario para Agregar Nueva Categoría -->
+        <div class="md:col-span-1">
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <h2 class="text-xl font-bold mb-4 text-gray-900">Agregar Categoría</h2>
+                <form action="{{ url_for('configuracion') }}" method="POST" class="space-y-4">
+                    <div>
+                        <label for="nombre_categoria" class="block text-sm font-medium text-gray-700">Nombre de la Categoría</label>
+                        <input type="text" id="nombre_categoria" name="nombre_categoria" required
+                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                               placeholder="Ej: Mascotas">
+                    </div>
+                    <button type="submit"
+                            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
+                        Agregar
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Columna 2: Tabla de Categorías Actuales -->
+        <div class="md:col-span-2">
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <h2 class="text-xl font-bold mb-4 text-gray-900">Categorías Actuales</h2>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nombre</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <!-- Usamos la variable 'categorias_globales' -->
+                            {% for cat in categorias_globales %}
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ cat }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                    <!-- No se puede borrar "Otros" -->
+                                    {% if cat != 'Otros' %}
+                                    <form action="{{ url_for('delete_categoria') }}" method="POST" onsubmit="return confirm('¿Estás seguro? Se eliminarán los presupuestos asociados y las transacciones pasarán a &quot;Otros&quot;.');">
+                                        <input type="hidden" name="categoria" value="{{ cat }}">
+                                        <button type="submit" class="text-red-600 hover:text-red-900">Eliminar</button>
+                                    </form>
+                                    {% else %}
+                                    <span class="text-gray-400 italic">No se puede eliminar</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}
