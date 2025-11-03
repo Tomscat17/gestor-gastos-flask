@@ -1,67 +1,65 @@
 import sqlite3
 import datetime
+# --- ¡CAMBIOS EN IMPORTS! ---
+import psycopg2
+import psycopg2.extras # Para que los cursores devuelvan diccionarios
+import os # Para leer la URL de la base de datos
+# --- Fin de cambios ---
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
 import calendar 
 import locale 
 import click 
-import os
-# --- ¡NUEVOS IMPORTS! ---
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
 from flask_bcrypt import Bcrypt
 
 app = Flask(__name__)
-# --- ¡NUEVO! Llave secreta para las sesiones ---
-# (En producción, esto debería ser un secreto real)
 app.config['SECRET_KEY'] = 'mi-llave-secreta-muy-segura-12345'
-DATABASE_PATH = os.environ.get('DATABASE_URL', 'gastos.db')
+# --- ¡CAMBIO CRÍTICO! ---
+# Render nos dará la URL de la base de datos en esta variable de entorno.
+DATABASE_URL = os.environ.get('DATABASE_URL')
+# --- Fin del cambio ---
 
-# --- ¡NUEVO! Inicializar Bcrypt y LoginManager ---
 bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
-login_manager.login_view = 'login' # Página a la que redirige si no estás logueado
+login_manager.login_view = 'login' 
 login_manager.login_message = 'Por favor, inicia sesión para acceder a esta página.'
-login_manager.login_message_category = 'info' # Categoría de mensaje de Bootstrap/Tailwind
+login_manager.login_message_category = 'info' 
 
-# --- ¡NUEVO! Modelo de Usuario ---
 class User(UserMixin):
-    """Clase de usuario para Flask-Login"""
     def __init__(self, id, email):
         self.id = id
         self.email = email
 
 @login_manager.user_loader
 def load_user(user_id):
-    """Función que Flask-Login usa para recargar el objeto User desde la sesión"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+    # ¡MODIFICADO! (%s en lugar de ?)
+    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
     user_db = cursor.fetchone()
     conn.close()
     if user_db:
         return User(id=user_db['id'], email=user_db['email'])
     return None
 
-# --- ¡MODIFICADO! Context Processor ---
 @app.context_processor
 def inject_global_vars():
-    """Hace que las categorías del USUARIO ACTUAL estén disponibles en todas las plantillas."""
     categorias = []
-    if current_user.is_authenticated: # Solo si hay un usuario logueado
+    if current_user.is_authenticated:
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
-            # ¡MODIFICADO! Filtra por user_id
-            cursor.execute("SELECT nombre FROM categorias WHERE user_id = ? ORDER BY nombre ASC", (current_user.id,))
+            # ¡MODIFICADO! (%s en lugar de ?)
+            cursor.execute("SELECT nombre FROM categorias WHERE user_id = %s ORDER BY nombre ASC", (current_user.id,))
             categorias = [row['nombre'] for row in cursor.fetchall()]
             conn.close()
-        except sqlite3.Error as e:
-            print(f"ADVERTENCIA: No se pudieron cargar las categorías para el user {current_user.id}. Error: {e}")
+        except Exception as e:
+            print(f"ADVERTENCIA: No se pudieron cargar las categorías. Error: {e}")
             
     return dict(
         categorias_globales=categorias
     )
 
-# --- Filtro de Moneda (sin cambios) ---
 @app.template_filter('currency')
 def format_currency_filter(value):
     try:
@@ -74,7 +72,6 @@ def format_currency_filter(value):
         except Exception:
             return value
 
-# --- Set Locale (sin cambios) ---
 def set_locale():
     try:
         locales_to_try = ['es_ES.UTF-8', 'es_ES', 'spanish', 'es-CL.UTF-8', 'es-CL']
@@ -88,13 +85,15 @@ def set_locale():
         pass
     return False
 
-# --- Conexión a BD (sin cambios) ---
+# --- ¡FUNCIÓN COMPLETAMENTE REESCRITA! ---
 def get_db_connection():
-    conn = sqlite3.connect(DATABASE_PATH)
-    conn.row_factory = sqlite3.Row
+    """Se conecta a la base de datos PostgreSQL usando la URL del entorno."""
+    conn = psycopg2.connect(DATABASE_URL)
+    # ¡Devuelve un cursor que funciona como un diccionario! (reemplaza a row_factory)
+    conn.cursor_factory = psycopg2.extras.DictCursor
     return conn
 
-# --- ¡NUEVO! Función para crear categorías por defecto para un nuevo usuario ---
+# --- ¡FUNCIÓN COMPLETAMENTE REESCRITA! ---
 def create_default_categories(user_id):
     default_categories = [
         ('Comida', user_id), ('Transporte', user_id), ('Vivienda', user_id), ('Ocio', user_id), 
@@ -103,77 +102,71 @@ def create_default_categories(user_id):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.executemany("INSERT INTO categorias (nombre, user_id) VALUES (?, ?)", default_categories)
+        # ¡MODIFICADO! (%s en lugar de ?)
+        cursor.executemany("INSERT INTO categorias (nombre, user_id) VALUES (%s, %s)", default_categories)
         conn.commit()
+        cursor.close()
         conn.close()
         print(f"Categorías por defecto creadas para el user {user_id}.")
-    except sqlite3.Error as e:
+    except Exception as e:
         print(f"Error creando categorías por defecto: {e}")
 
-
-# --- ¡MODIFICADO! Lógica de Init DB ---
+# --- ¡FUNCIÓN COMPLETAMENTE REESCRITA! (Sintaxis SQL de PostgreSQL) ---
 def init_db_logic():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # --- ¡NUEVA TABLA! ---
+        # Sintaxis de PostgreSQL (SERIAL PRIMARY KEY, VARCHAR)
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT NOT NULL UNIQUE,
+            id SERIAL PRIMARY KEY,
+            email VARCHAR(255) NOT NULL UNIQUE,
             password_hash TEXT NOT NULL
         )
         ''')
         
-        # --- ¡MODIFICADO! Añadido user_id ---
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS transacciones (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL,
-            fecha TEXT NOT NULL,
-            descripcion TEXT NOT NULL,
-            monto REAL NOT NULL,
-            tipo TEXT NOT NULL CHECK(tipo IN ('ingreso', 'gasto')),
-            categoria TEXT DEFAULT 'Otros',
+            fecha DATE NOT NULL,
+            descripcion VARCHAR(255) NOT NULL,
+            monto DECIMAL(10, 2) NOT NULL,
+            tipo VARCHAR(10) NOT NULL CHECK(tipo IN ('ingreso', 'gasto')),
+            categoria VARCHAR(100) DEFAULT 'Otros',
             FOREIGN KEY (user_id) REFERENCES users (id)
         )
         ''')
 
-        # --- ¡MODIFICADO! Añadido user_id ---
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS presupuestos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL,
-            categoria TEXT NOT NULL,
-            monto_maximo REAL NOT NULL,
+            categoria VARCHAR(100) NOT NULL,
+            monto_maximo DECIMAL(10, 2) NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users (id),
             UNIQUE(user_id, categoria)
         )
         ''')
         
-        # --- ¡MODIFICADO! Añadido user_id ---
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS categorias (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL,
-            nombre TEXT NOT NULL,
+            nombre VARCHAR(100) NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users (id),
             UNIQUE(user_id, nombre)
         )
         ''')
         
-        # Ya no poblamos categorías aquí, se hace al registrar un usuario
-        
         conn.commit()
+        cursor.close()
+        conn.close()
         print("Database initialized/migrated successfully.")
-    except sqlite3.Error as e:
+    except Exception as e:
         print(f"An error occurred while initializing the DB: {e}")
-    finally:
-        if conn:
-            conn.close()
 
-# --- Comando init-db (sin cambios) ---
 @app.cli.command('init-db')
 def init_db_command():
     init_db_logic()
@@ -181,8 +174,7 @@ def init_db_command():
 
 set_locale()
 
-# --- ¡¡¡NUEVAS RUTAS DE AUTENTICACIÓN!!! ---
-
+# --- Rutas de Autenticación (¡MODIFICADAS A %s!) ---
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
@@ -196,34 +188,34 @@ def register():
         if password != confirm_password:
             flash('Las contraseñas no coinciden. Por favor, inténtalo de nuevo.', 'danger')
             return redirect(url_for('register'))
-        
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
+        cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
         user_db = cursor.fetchone()
 
         if user_db:
             flash('Este email ya está registrado. Por favor, inicia sesión.', 'warning')
+            cursor.close()
             conn.close()
             return redirect(url_for('login'))
         
-        # Si no existe, creamos el usuario
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
         try:
-            cursor.execute("INSERT INTO users (email, password_hash) VALUES (?, ?)", (email, hashed_password))
+            cursor.execute("INSERT INTO users (email, password_hash) VALUES (%s, %s) RETURNING id", (email, hashed_password))
+            new_user_id = cursor.fetchone()['id']
             conn.commit()
-            new_user_id = cursor.lastrowid
             
-            # --- ¡IMPORTANTE! Creamos sus categorías por defecto ---
             create_default_categories(new_user_id)
             
             flash('¡Cuenta creada con éxito! Ahora puedes iniciar sesión.', 'success')
-            conn.close()
-            return redirect(url_for('login'))
-        except sqlite3.Error as e:
+        except Exception as e:
             flash(f'Error al registrar: {e}', 'danger')
+        finally:
+            cursor.close()
             conn.close()
-            return redirect(url_for('register'))
+            
+        return redirect(url_for('login'))
 
     return render_template('register.html')
 
@@ -238,16 +230,14 @@ def login():
         
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
+        cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
         user_db = cursor.fetchone()
         conn.close()
         
         if user_db and bcrypt.check_password_hash(user_db['password_hash'], password):
-            # Contraseña correcta. Creamos el objeto User y lo logueamos
             user_obj = User(id=user_db['id'], email=user_db['email'])
-            login_user(user_obj, remember=True) # 'remember=True' lo mantiene logueado
+            login_user(user_obj, remember=True)
             
-            # Redirige a la página que intentaba visitar, o al index
             next_page = request.args.get('next')
             return redirect(next_page or url_for('index'))
         else:
@@ -263,15 +253,14 @@ def logout():
     flash('Has cerrado sesión.', 'success')
     return redirect(url_for('login'))
 
-# --- ¡¡¡TODAS LAS RUTAS DE ABAJO AHORA REQUIEREN LOGIN!!! ---
 
-# --- Ruta Index (Dashboard) ---
+# --- Rutas Principales (¡MODIFICADAS A %s!) ---
 @app.route('/', methods=['GET', 'POST'])
-@login_required # <-- ¡Protegido!
+@login_required 
 def index():
     conn = get_db_connection()
     cursor = conn.cursor()
-    user_id = current_user.id # Obtenemos el ID del usuario logueado
+    user_id = current_user.id 
 
     if request.method == 'POST':
         try:
@@ -280,16 +269,15 @@ def index():
             monto = float(request.form['monto'])
             tipo = request.form['tipo']
             categoria = request.form.get('categoria', 'Otros') if tipo == 'gasto' else 'Ingreso'
-            
-            # ¡MODIFICADO! Añadido user_id
             cursor.execute(
-                "INSERT INTO transacciones (fecha, descripcion, monto, tipo, categoria, user_id) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO transacciones (fecha, descripcion, monto, tipo, categoria, user_id) VALUES (%s, %s, %s, %s, %s, %s)",
                 (fecha, descripcion, monto, tipo, categoria, user_id)
             )
             conn.commit()
-        except sqlite3.Error as e:
+        except Exception as e:
             print(f"An error occurred while inserting data: {e}")
         finally:
+            cursor.close()
             conn.close()
         new_fecha_dt = datetime.datetime.strptime(fecha, '%Y-%m-%d')
         return redirect(url_for('index', mes=f"{new_fecha_dt.month:02d}", ano=new_fecha_dt.year))
@@ -298,10 +286,8 @@ def index():
     today = datetime.date.today()
     mes_seleccionado = request.args.get('mes', f"{today.month:02d}")
     ano_seleccionado = request.args.get('ano', str(today.year))
-    
-    # ¡MODIFICADO! Todos los filtros ahora incluyen user_id
-    filtro_mensual_sql_where = " WHERE strftime('%Y', fecha) = ? AND strftime('%m', fecha) = ? AND user_id = ? "
-    filtro_mensual_sql_and = " AND strftime('%Y', fecha) = ? AND strftime('%m', fecha) = ? AND user_id = ? "
+    filtro_mensual_sql_where = " WHERE strftime('%Y', fecha) = %s AND strftime('%m', fecha) = %s AND user_id = %s "
+    filtro_mensual_sql_and = " AND strftime('%Y', fecha) = %s AND strftime('%m', fecha) = %s AND user_id = %s "
     params_mensual = (ano_seleccionado, mes_seleccionado, user_id)
     
     progreso_presupuestos = []
@@ -310,7 +296,6 @@ def index():
     balance_historico = 0.0
     
     try:
-        # 1. Cálculos MENSUALES
         cursor.execute("SELECT * FROM transacciones" + filtro_mensual_sql_where + "ORDER BY fecha DESC, id DESC", params_mensual)
         transacciones = cursor.fetchall()
         cursor.execute("SELECT COALESCE(SUM(monto), 0) FROM transacciones WHERE tipo = 'ingreso'" + filtro_mensual_sql_and, params_mensual)
@@ -319,14 +304,12 @@ def index():
         gastos_mensual = cursor.fetchone()[0]
         balance_mensual = ingresos_mensual - gastos_mensual
 
-        # 2. Cálculos HISTÓRICOS
-        cursor.execute("SELECT COALESCE(SUM(monto), 0) FROM transacciones WHERE tipo = 'ingreso' AND user_id = ?", (user_id,))
+        cursor.execute("SELECT COALESCE(SUM(monto), 0) FROM transacciones WHERE tipo = 'ingreso' AND user_id = %s", (user_id,))
         total_ingresos_historico = cursor.fetchone()[0]
-        cursor.execute("SELECT COALESCE(SUM(monto), 0) FROM transacciones WHERE tipo = 'gasto' AND user_id = ?", (user_id,))
+        cursor.execute("SELECT COALESCE(SUM(monto), 0) FROM transacciones WHERE tipo = 'gasto' AND user_id = %s", (user_id,))
         total_gastos_historico = cursor.fetchone()[0]
         balance_historico = total_ingresos_historico - total_gastos_historico
         
-        # 3. Lógica de Presupuestos
         cursor.execute(
             "SELECT categoria, SUM(monto) as total_gastado "
             "FROM transacciones "
@@ -336,27 +319,27 @@ def index():
         )
         gastos_reales = {row['categoria']: row['total_gastado'] for row in cursor.fetchall()}
 
-        cursor.execute("SELECT categoria, monto_maximo FROM presupuestos WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT categoria, monto_maximo FROM presupuestos WHERE user_id = %s", (user_id,))
         presupuestos_fijados = {row['categoria']: row['monto_maximo'] for row in cursor.fetchall()}
 
-        cursor.execute("SELECT nombre FROM categorias WHERE user_id = ? ORDER BY nombre ASC", (user_id,))
+        cursor.execute("SELECT nombre FROM categorias WHERE user_id = %s ORDER BY nombre ASC", (user_id,))
         categorias_db = [row['nombre'] for row in cursor.fetchall()]
 
         for cat in categorias_db: 
             gastado = gastos_reales.get(cat, 0)
             presupuesto = presupuestos_fijados.get(cat, 0)
             if presupuesto > 0:
-                porcentaje, porcentaje_real = min(round((gastado / presupuesto) * 100), 100), round((gastado / presupuesto) * 100)
+                porcentaje, porcentaje_real = min(round((float(gastado) / float(presupuesto)) * 100), 100), round((float(gastado) / float(presupuesto)) * 100)
             else:
                 porcentaje, porcentaje_real = 0, 0
             progreso_presupuestos.append({'categoria': cat, 'gastado': gastado, 'presupuesto': presupuesto, 'porcentaje': porcentaje, 'porcentaje_real': porcentaje_real})
 
-    except sqlite3.Error as e:
+    except Exception as e:
         print(f"An error occurred while fetching data: {e}")
     finally:
+        cursor.close()
         conn.close()
     
-    # Preparar datos para la plantilla
     if ano_seleccionado == str(today.year) and mes_seleccionado == f"{today.month:02d}":
         default_form_date = today.strftime('%Y-%m-%d')
     else:
@@ -385,9 +368,8 @@ def index():
                            progreso_presupuestos=progreso_presupuestos
                            )
 
-# --- Ruta Presupuestos ---
 @app.route('/presupuestos', methods=['GET', 'POST'])
-@login_required # <-- ¡Protegido!
+@login_required
 def presupuestos():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -397,41 +379,39 @@ def presupuestos():
         try:
             categoria = request.form['categoria']
             monto_maximo = float(request.form['monto_maximo'])
-            
-            # ¡MODIFICADO! Añadido user_id
             cursor.execute(
                 """
                 INSERT INTO presupuestos (categoria, monto_maximo, user_id)
-                VALUES (?, ?, ?)
+                VALUES (%s, %s, %s)
                 ON CONFLICT(user_id, categoria) DO UPDATE SET
                     monto_maximo = excluded.monto_maximo
                 """,
                 (categoria, monto_maximo, user_id)
             )
             conn.commit()
-        except sqlite3.Error as e:
+        except Exception as e:
             print(f"Error al guardar presupuesto: {e}")
         finally:
+            cursor.close()
             conn.close()
         return redirect(url_for('presupuestos'))
 
     presupuestos_guardados = []
     try:
-        # ¡MODIFICADO! Añadido user_id
-        cursor.execute("SELECT categoria, monto_maximo FROM presupuestos WHERE user_id = ? ORDER BY categoria", (user_id,))
+        cursor.execute("SELECT categoria, monto_maximo FROM presupuestos WHERE user_id = %s ORDER BY categoria", (user_id,))
         presupuestos_guardados = cursor.fetchall()
-    except sqlite3.Error as e:
+    except Exception as e:
         print(f"Error al leer presupuestos: {e}")
     
+    cursor.close()
     conn.close()
     presupuestos_dict = {p['categoria']: p['monto_maximo'] for p in presupuestos_guardados}
     return render_template('presupuestos.html', 
                            presupuestos_guardados=presupuestos_dict
                            )
 
-# --- Ruta Configuración ---
 @app.route('/configuracion', methods=['GET', 'POST'])
-@login_required # <-- ¡Protegido!
+@login_required
 def configuracion():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -441,22 +421,24 @@ def configuracion():
         categoria_nueva = request.form.get('nombre_categoria', '').strip()
         if categoria_nueva:
             try:
-                # ¡MODIFICADO! Añadido user_id
-                cursor.execute("INSERT INTO categorias (nombre, user_id) VALUES (?, ?)", (categoria_nueva, user_id))
+                cursor.execute("INSERT INTO categorias (nombre, user_id) VALUES (%s, %s)", (categoria_nueva, user_id))
                 conn.commit()
-            except sqlite3.IntegrityError:
-                flash(f"La categoría '{categoria_nueva}' ya existe.", 'warning')
-            except sqlite3.Error as e:
-                flash(f"Error al insertar categoría: {e}", 'danger')
+            except Exception as e:
+                conn.rollback()
+                if 'UNIQUE constraint' in str(e):
+                    flash(f"La categoría '{categoria_nueva}' ya existe.", 'warning')
+                else:
+                    flash(f"Error al insertar categoría: {e}", 'danger')
+        cursor.close()
         conn.close()
         return redirect(url_for('configuracion'))
 
+    cursor.close()
     conn.close()
     return render_template('configuracion.html')
 
-# --- Ruta Delete Categoría ---
 @app.route('/configuracion/delete', methods=['POST'])
-@login_required # <-- ¡Protegido!
+@login_required
 def delete_categoria():
     categoria_a_borrar = request.form.get('categoria')
     user_id = current_user.id
@@ -464,30 +446,28 @@ def delete_categoria():
     if categoria_a_borrar == 'Otros':
         flash("No se puede borrar la categoría 'Otros'.", 'warning')
         return redirect(url_for('configuracion'))
-
     if not categoria_a_borrar:
          return redirect(url_for('configuracion'))
 
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # ¡MODIFICADO! Todas las queries filtran por user_id
-        cursor.execute("UPDATE transacciones SET categoria = 'Otros' WHERE categoria = ? AND user_id = ?", (categoria_a_borrar, user_id))
-        cursor.execute("DELETE FROM presupuestos WHERE categoria = ? AND user_id = ?", (categoria_a_borrar, user_id))
-        cursor.execute("DELETE FROM categorias WHERE nombre = ? AND user_id = ?", (categoria_a_borrar, user_id))
+        cursor.execute("UPDATE transacciones SET categoria = 'Otros' WHERE categoria = %s AND user_id = %s",(categoria_a_borrar, user_id))
+        cursor.execute("DELETE FROM presupuestos WHERE categoria = %s AND user_id = %s",(categoria_a_borrar, user_id))
+        cursor.execute("DELETE FROM categorias WHERE nombre = %s AND user_id = %s",(categoria_a_borrar, user_id))
         conn.commit()
         flash(f"Categoría '{categoria_a_borrar}' eliminada.", 'success')
-    except sqlite3.Error as e:
+    except Exception as e:
+        conn.rollback()
         flash(f"Error al eliminar categoría: {e}", 'danger')
     finally:
+        cursor.close()
         conn.close()
     
     return redirect(url_for('configuracion'))
 
-
-# --- Ruta Reportes ---
 @app.route('/reportes')
-@login_required # <-- ¡Protegido!
+@login_required
 def reportes():
     today = datetime.date.today()
     mes_seleccionado = request.args.get('mes', f"{today.month:02d}")
@@ -508,36 +488,32 @@ def reportes():
                            meses_del_ano=meses_del_ano,
                            anos_disponibles=anos_disponibles)
 
-
-# --- Ruta Delete ---
 @app.route('/delete/<int:id>', methods=['POST'])
-@login_required # <-- ¡Protegido!
+@login_required
 def delete(id):
     conn = get_db_connection()
     cursor = conn.cursor()
     user_id = current_user.id
     try:
-        # ¡MODIFICADO! Comprobamos que el ID le pertenece al usuario
-        cursor.execute("DELETE FROM transacciones WHERE id = ? AND user_id = ?", (id, user_id))
+        cursor.execute("DELETE FROM transacciones WHERE id = %s AND user_id = %s", (id, user_id))
         conn.commit()
-    except sqlite3.Error as e:
+    except Exception as e:
+        conn.rollback()
         print(f"An error occurred while deleting data: {e}")
     finally:
-        if conn:
-            conn.close()
+        cursor.close()
+        conn.close()
         return redirect(request.referrer or url_for('index'))
 
-# --- Ruta Update ---
 @app.route('/update/<int:id>', methods=['POST'])
-@login_required # <-- ¡Protegido!
+@login_required
 def update(id):
     if request.method == 'POST':
         conn = get_db_connection()
         cursor = conn.cursor()
         user_id = current_user.id
         try:
-            # Primero, verificamos que el usuario sea dueño de esta transacción
-            cursor.execute("SELECT id FROM transacciones WHERE id = ? AND user_id = ?", (id, user_id))
+            cursor.execute("SELECT id FROM transacciones WHERE id = %s AND user_id = %s", (id, user_id))
             if cursor.fetchone():
                 fecha = request.form['edit-fecha']
                 descripcion = request.form['edit-descripcion']
@@ -547,23 +523,24 @@ def update(id):
                 
                 cursor.execute(
                     """
-                    UPDATE transacciones SET fecha = ?, descripcion = ?, monto = ?, tipo = ?, categoria = ?
-                    WHERE id = ? AND user_id = ?
+                    UPDATE transacciones SET fecha = %s, descripcion = %s, monto = %s, tipo = %s, categoria = %s
+                    WHERE id = %s AND user_id = %s
                     """,
                     (fecha, descripcion, monto, tipo, categoria, id, user_id)
                 )
                 conn.commit()
             else:
                 flash("Error: No tienes permiso para editar esta transacción.", 'danger')
-        except sqlite3.Error as e:
+        except Exception as e:
+            conn.rollback()
             print(f"An error occurred while updating data: {e}")
         finally:
-            if conn:
-                conn.close()
+            cursor.close()
+            conn.close()
         return redirect(request.referrer or url_for('index'))
 
 
-# --- APIs de Gráficos (¡Todas protegidas!) ---
+# --- APIs de Gráficos (¡MODIFICADAS A %s!) ---
 @app.route('/api/chart-data/daily-flow')
 @login_required
 def daily_flow_chart_data():
@@ -574,8 +551,7 @@ def daily_flow_chart_data():
         today = datetime.date.today()
         mes, ano = f"{today.month:02d}", str(today.year)
     
-    # ¡MODIFICADO! Añadido user_id
-    date_filter_sql_where = " WHERE strftime('%Y', fecha) = ? AND strftime('%m', fecha) = ? AND user_id = ? "
+    date_filter_sql_where = " WHERE strftime('%Y', fecha) = %s AND strftime('%m', fecha) = %s AND user_id = %s "
     params = (ano, mes, user_id)
     
     conn = get_db_connection()
@@ -609,8 +585,7 @@ def category_chart_data():
         today = datetime.date.today()
         mes, ano = f"{today.month:02d}", str(today.year)
 
-    # ¡MODIFICADO! Añadido user_id
-    date_filter_sql_and = " AND strftime('%Y', fecha) = ? AND strftime('%m', fecha) = ? AND user_id = ? "
+    date_filter_sql_and = " AND strftime('%Y', fecha) = %s AND strftime('%m', fecha) = %s AND user_id = %s "
     params = (ano, mes, user_id)
     
     gastos_por_categoria = []
@@ -625,7 +600,7 @@ def category_chart_data():
             params
         )
         gastos_por_categoria = cursor.fetchall()
-    except sqlite3.Error as e:
+    except Exception as e:
         print(f"Error fetching category data: {e}")
     finally:
         if conn:
@@ -650,28 +625,27 @@ def annual_flow_chart_data():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # ¡MODIFICADO! Añadido user_id
         cursor.execute(
             "SELECT strftime('%m', fecha) as mes, SUM(monto) as total "
             "FROM transacciones "
-            "WHERE tipo = 'gasto' AND strftime('%Y', fecha) = ? AND user_id = ? "
+            "WHERE tipo = 'gasto' AND strftime('%Y', fecha) = %s AND user_id = %s "
             "GROUP BY mes",
             (ano, user_id)
         )
         for row in cursor.fetchall():
-            gastos_por_mes[int(row['mes']) - 1] = row['total']
+            gastos_por_mes[int(row['mes']) - 1] = float(row['total'])
             
         cursor.execute(
             "SELECT strftime('%m', fecha) as mes, SUM(monto) as total "
             "FROM transacciones "
-            "WHERE tipo = 'ingreso' AND strftime('%Y', fecha) = ? AND user_id = ? "
+            "WHERE tipo = 'ingreso' AND strftime('%Y', fecha) = %s AND user_id = %s "
             "GROUP BY mes",
             (ano, user_id)
         )
         for row in cursor.fetchall():
-            ingresos_por_mes[int(row['mes']) - 1] = row['total']
+            ingresos_por_mes[int(row['mes']) - 1] = float(row['total'])
             
-    except sqlite3.Error as e:
+    except Exception as e:
         print(f"Error al obtener datos anuales: {e}")
     finally:
         if conn:
