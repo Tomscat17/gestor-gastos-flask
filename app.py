@@ -428,8 +428,12 @@ def configuracion():
 def delete_categoria():
     categoria_a_borrar = request.form.get('categoria')
     user_id = current_user.id
-    if categoria_a_borrar == 'Otros' or not categoria_a_borrar:
+    
+    if categoria_a_borrar == 'Otros':
+        flash("No se puede borrar la categoría 'Otros'.", 'warning')
         return redirect(url_for('configuracion'))
+    if not categoria_a_borrar:
+         return redirect(url_for('configuracion'))
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -519,6 +523,8 @@ def update(id):
             conn.close()
         return redirect(request.referrer or url_for('index'))
 
+
+# --- APIs de Gráficos ---
 @app.route('/api/chart-data/daily-flow')
 @login_required
 def daily_flow_chart_data():
@@ -548,9 +554,9 @@ def daily_flow_chart_data():
     for row in data_db:
         dia_index = int(row['dia']) - 1
         if row['tipo'] == 'gasto':
-            gastos_data[dia_index] = float(row['total']) # ¡Corrección a float!
+            gastos_data[dia_index] = float(row['total']) 
         else:
-            ingresos_data[dia_index] = float(row['total']) # ¡Corrección a float!
+            ingresos_data[dia_index] = float(row['total']) 
     return jsonify({'labels': labels, 'datasets': [{'label': 'Gastos', 'data': gastos_data, 'backgroundColor': '#FF6384'}, {'label': 'Ingresos', 'data': ingresos_data, 'backgroundColor': '#36A2EB'}]})
 
 @app.route('/api/chart-data/categories')
@@ -570,11 +576,12 @@ def category_chart_data():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
+        # ¡CORRECCIÓN AQUÍ! HAVING SUM(monto) > 0
         cursor.execute(
             "SELECT categoria, SUM(monto) as total "
             "FROM transacciones "
             "WHERE tipo = 'gasto'" + date_filter_sql_and +
-            "GROUP BY categoria HAVING total > 0 ORDER BY total DESC",
+            "GROUP BY categoria HAVING SUM(monto) > 0 ORDER BY total DESC",
             params
         )
         gastos_por_categoria = cursor.fetchall()
@@ -585,7 +592,6 @@ def category_chart_data():
             conn.close()
     
     labels = [row['categoria'] for row in gastos_por_categoria]
-    # ¡Corrección crítica aquí! Convertir a float para que JSON no falle
     data = [float(row['total']) for row in gastos_por_categoria]
     return jsonify({'labels': labels, 'data': data})
 
@@ -612,7 +618,7 @@ def annual_flow_chart_data():
             (ano, user_id)
         )
         for row in cursor.fetchall():
-            gastos_por_mes[int(row['mes']) - 1] = float(row['total']) # Corrección a float
+            gastos_por_mes[int(row['mes']) - 1] = float(row['total']) 
             
         cursor.execute(
             "SELECT to_char(fecha, 'MM') as mes, SUM(monto) as total "
@@ -622,7 +628,7 @@ def annual_flow_chart_data():
             (ano, user_id)
         )
         for row in cursor.fetchall():
-            ingresos_por_mes[int(row['mes']) - 1] = float(row['total']) # Corrección a float
+            ingresos_por_mes[int(row['mes']) - 1] = float(row['total']) 
             
     except Exception as e:
         print(f"Error al obtener datos anuales: {e}")
