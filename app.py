@@ -1,10 +1,8 @@
-import sqlite3
+import sqlite3 # Se mantiene por compatibilidad si corres local sin variable de entorno, pero usaremos psycopg2
 import datetime
-# --- ¡CAMBIOS EN IMPORTS! ---
 import psycopg2
-import psycopg2.extras # Para que los cursores devuelvan diccionarios
-import os # Para leer la URL de la base de datos
-# --- Fin de cambios ---
+import psycopg2.extras 
+import os 
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
 import calendar 
 import locale 
@@ -14,10 +12,7 @@ from flask_bcrypt import Bcrypt
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'mi-llave-secreta-muy-segura-12345'
-# --- ¡CAMBIO CRÍTICO! ---
-# Render nos dará la URL de la base de datos en esta variable de entorno.
 DATABASE_URL = os.environ.get('DATABASE_URL')
-# --- Fin del cambio ---
 
 bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
@@ -34,7 +29,6 @@ class User(UserMixin):
 def load_user(user_id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    # ¡MODIFICADO! (%s en lugar de ?)
     cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
     user_db = cursor.fetchone()
     conn.close()
@@ -49,7 +43,6 @@ def inject_global_vars():
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
-            # ¡MODIFICADO! (%s en lugar de ?)
             cursor.execute("SELECT nombre FROM categorias WHERE user_id = %s ORDER BY nombre ASC", (current_user.id,))
             categorias = [row['nombre'] for row in cursor.fetchall()]
             conn.close()
@@ -85,15 +78,19 @@ def set_locale():
         pass
     return False
 
-# --- ¡FUNCIÓN COMPLETAMENTE REESCRITA! ---
 def get_db_connection():
     """Se conecta a la base de datos PostgreSQL usando la URL del entorno."""
-    conn = psycopg2.connect(DATABASE_URL)
-    # ¡Devuelve un cursor que funciona como un diccionario! (reemplaza a row_factory)
-    conn.cursor_factory = psycopg2.extras.DictCursor
-    return conn
+    if DATABASE_URL:
+        conn = psycopg2.connect(DATABASE_URL)
+        conn.cursor_factory = psycopg2.extras.DictCursor
+        return conn
+    else:
+        # Fallback para desarrollo local si no tienes Postgres instalado
+        # (Aunque lo ideal es usar Postgres también en local)
+        conn = sqlite3.connect('gastos.db')
+        conn.row_factory = sqlite3.Row
+        return conn
 
-# --- ¡FUNCIÓN COMPLETAMENTE REESCRITA! ---
 def create_default_categories(user_id):
     default_categories = [
         ('Comida', user_id), ('Transporte', user_id), ('Vivienda', user_id), ('Ocio', user_id), 
@@ -102,7 +99,7 @@ def create_default_categories(user_id):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # ¡MODIFICADO! (%s en lugar de ?)
+        # Consulta compatible con PostgreSQL
         cursor.executemany("INSERT INTO categorias (nombre, user_id) VALUES (%s, %s)", default_categories)
         conn.commit()
         cursor.close()
@@ -111,13 +108,12 @@ def create_default_categories(user_id):
     except Exception as e:
         print(f"Error creando categorías por defecto: {e}")
 
-# --- ¡FUNCIÓN COMPLETAMENTE REESCRITA! (Sintaxis SQL de PostgreSQL) ---
 def init_db_logic():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Sintaxis de PostgreSQL (SERIAL PRIMARY KEY, VARCHAR)
+        # Sintaxis PostgreSQL
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
@@ -174,7 +170,7 @@ def init_db_command():
 
 set_locale()
 
-# --- Rutas de Autenticación (¡MODIFICADAS A %s!) ---
+# --- Rutas de Autenticación ---
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
@@ -254,7 +250,7 @@ def logout():
     return redirect(url_for('login'))
 
 
-# --- Rutas Principales (¡MODIFICADAS A %s!) ---
+# --- Rutas Principales ---
 @app.route('/', methods=['GET', 'POST'])
 @login_required 
 def index():
@@ -286,8 +282,11 @@ def index():
     today = datetime.date.today()
     mes_seleccionado = request.args.get('mes', f"{today.month:02d}")
     ano_seleccionado = request.args.get('ano', str(today.year))
-    filtro_mensual_sql_where = " WHERE strftime('%Y', fecha) = %s AND strftime('%m', fecha) = %s AND user_id = %s "
-    filtro_mensual_sql_and = " AND strftime('%Y', fecha) = %s AND strftime('%m', fecha) = %s AND user_id = %s "
+    
+    # --- ¡CORRECCIÓN PARA POSTGRESQL! ---
+    # Usamos to_char(fecha, 'YYYY') en lugar de strftime('%Y', fecha)
+    filtro_mensual_sql_where = " WHERE to_char(fecha, 'YYYY') = %s AND to_char(fecha, 'MM') = %s AND user_id = %s "
+    filtro_mensual_sql_and = " AND to_char(fecha, 'YYYY') = %s AND to_char(fecha, 'MM') = %s AND user_id = %s "
     params_mensual = (ano_seleccionado, mes_seleccionado, user_id)
     
     progreso_presupuestos = []
@@ -425,7 +424,7 @@ def configuracion():
                 conn.commit()
             except Exception as e:
                 conn.rollback()
-                if 'UNIQUE constraint' in str(e):
+                if 'UNIQUE constraint' in str(e) or 'duplicate key' in str(e):
                     flash(f"La categoría '{categoria_nueva}' ya existe.", 'warning')
                 else:
                     flash(f"Error al insertar categoría: {e}", 'danger')
@@ -540,7 +539,7 @@ def update(id):
         return redirect(request.referrer or url_for('index'))
 
 
-# --- APIs de Gráficos (¡MODIFICADAS A %s!) ---
+# --- APIs de Gráficos (¡CORREGIDAS PARA POSTGRESQL!) ---
 @app.route('/api/chart-data/daily-flow')
 @login_required
 def daily_flow_chart_data():
@@ -551,13 +550,15 @@ def daily_flow_chart_data():
         today = datetime.date.today()
         mes, ano = f"{today.month:02d}", str(today.year)
     
-    date_filter_sql_where = " WHERE strftime('%Y', fecha) = %s AND strftime('%m', fecha) = %s AND user_id = %s "
+    # ¡CORRECCIÓN! to_char en lugar de strftime
+    date_filter_sql_where = " WHERE to_char(fecha, 'YYYY') = %s AND to_char(fecha, 'MM') = %s AND user_id = %s "
     params = (ano, mes, user_id)
     
     conn = get_db_connection()
     cursor = conn.cursor()
+    # ¡CORRECCIÓN! to_char(fecha, 'DD')
     cursor.execute(
-        "SELECT strftime('%d', fecha) as dia, tipo, SUM(monto) as total "
+        "SELECT to_char(fecha, 'DD') as dia, tipo, SUM(monto) as total "
         "FROM transacciones" + date_filter_sql_where +
         "GROUP BY dia, tipo ORDER BY dia",
         params
@@ -585,7 +586,8 @@ def category_chart_data():
         today = datetime.date.today()
         mes, ano = f"{today.month:02d}", str(today.year)
 
-    date_filter_sql_and = " AND strftime('%Y', fecha) = %s AND strftime('%m', fecha) = %s AND user_id = %s "
+    # ¡CORRECCIÓN! to_char
+    date_filter_sql_and = " AND to_char(fecha, 'YYYY') = %s AND to_char(fecha, 'MM') = %s AND user_id = %s "
     params = (ano, mes, user_id)
     
     gastos_por_categoria = []
@@ -625,10 +627,11 @@ def annual_flow_chart_data():
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        # ¡CORRECCIÓN! to_char en lugar de strftime
         cursor.execute(
-            "SELECT strftime('%m', fecha) as mes, SUM(monto) as total "
+            "SELECT to_char(fecha, 'MM') as mes, SUM(monto) as total "
             "FROM transacciones "
-            "WHERE tipo = 'gasto' AND strftime('%Y', fecha) = %s AND user_id = %s "
+            "WHERE tipo = 'gasto' AND to_char(fecha, 'YYYY') = %s AND user_id = %s "
             "GROUP BY mes",
             (ano, user_id)
         )
@@ -636,9 +639,9 @@ def annual_flow_chart_data():
             gastos_por_mes[int(row['mes']) - 1] = float(row['total'])
             
         cursor.execute(
-            "SELECT strftime('%m', fecha) as mes, SUM(monto) as total "
+            "SELECT to_char(fecha, 'MM') as mes, SUM(monto) as total "
             "FROM transacciones "
-            "WHERE tipo = 'ingreso' AND strftime('%Y', fecha) = %s AND user_id = %s "
+            "WHERE tipo = 'ingreso' AND to_char(fecha, 'YYYY') = %s AND user_id = %s "
             "GROUP BY mes",
             (ano, user_id)
         )
