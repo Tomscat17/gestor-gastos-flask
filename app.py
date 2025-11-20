@@ -1,4 +1,4 @@
-import sqlite3 # Se mantiene por compatibilidad si corres local sin variable de entorno, pero usaremos psycopg2
+import sqlite3
 import datetime
 import psycopg2
 import psycopg2.extras 
@@ -79,14 +79,11 @@ def set_locale():
     return False
 
 def get_db_connection():
-    """Se conecta a la base de datos PostgreSQL usando la URL del entorno."""
     if DATABASE_URL:
         conn = psycopg2.connect(DATABASE_URL)
         conn.cursor_factory = psycopg2.extras.DictCursor
         return conn
     else:
-        # Fallback para desarrollo local si no tienes Postgres instalado
-        # (Aunque lo ideal es usar Postgres también en local)
         conn = sqlite3.connect('gastos.db')
         conn.row_factory = sqlite3.Row
         return conn
@@ -99,7 +96,6 @@ def create_default_categories(user_id):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # Consulta compatible con PostgreSQL
         cursor.executemany("INSERT INTO categorias (nombre, user_id) VALUES (%s, %s)", default_categories)
         conn.commit()
         cursor.close()
@@ -113,7 +109,6 @@ def init_db_logic():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Sintaxis PostgreSQL
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
@@ -201,16 +196,13 @@ def register():
             cursor.execute("INSERT INTO users (email, password_hash) VALUES (%s, %s) RETURNING id", (email, hashed_password))
             new_user_id = cursor.fetchone()['id']
             conn.commit()
-            
             create_default_categories(new_user_id)
-            
             flash('¡Cuenta creada con éxito! Ahora puedes iniciar sesión.', 'success')
         except Exception as e:
             flash(f'Error al registrar: {e}', 'danger')
         finally:
             cursor.close()
             conn.close()
-            
         return redirect(url_for('login'))
 
     return render_template('register.html')
@@ -233,7 +225,6 @@ def login():
         if user_db and bcrypt.check_password_hash(user_db['password_hash'], password):
             user_obj = User(id=user_db['id'], email=user_db['email'])
             login_user(user_obj, remember=True)
-            
             next_page = request.args.get('next')
             return redirect(next_page or url_for('index'))
         else:
@@ -248,7 +239,6 @@ def logout():
     logout_user()
     flash('Has cerrado sesión.', 'success')
     return redirect(url_for('login'))
-
 
 # --- Rutas Principales ---
 @app.route('/', methods=['GET', 'POST'])
@@ -278,13 +268,10 @@ def index():
         new_fecha_dt = datetime.datetime.strptime(fecha, '%Y-%m-%d')
         return redirect(url_for('index', mes=f"{new_fecha_dt.month:02d}", ano=new_fecha_dt.year))
 
-    # Lógica GET
     today = datetime.date.today()
     mes_seleccionado = request.args.get('mes', f"{today.month:02d}")
     ano_seleccionado = request.args.get('ano', str(today.year))
     
-    # --- ¡CORRECCIÓN PARA POSTGRESQL! ---
-    # Usamos to_char(fecha, 'YYYY') en lugar de strftime('%Y', fecha)
     filtro_mensual_sql_where = " WHERE to_char(fecha, 'YYYY') = %s AND to_char(fecha, 'MM') = %s AND user_id = %s "
     filtro_mensual_sql_and = " AND to_char(fecha, 'YYYY') = %s AND to_char(fecha, 'MM') = %s AND user_id = %s "
     params_mensual = (ano_seleccionado, mes_seleccionado, user_id)
@@ -441,12 +428,8 @@ def configuracion():
 def delete_categoria():
     categoria_a_borrar = request.form.get('categoria')
     user_id = current_user.id
-    
-    if categoria_a_borrar == 'Otros':
-        flash("No se puede borrar la categoría 'Otros'.", 'warning')
+    if categoria_a_borrar == 'Otros' or not categoria_a_borrar:
         return redirect(url_for('configuracion'))
-    if not categoria_a_borrar:
-         return redirect(url_for('configuracion'))
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -498,7 +481,6 @@ def delete(id):
         conn.commit()
     except Exception as e:
         conn.rollback()
-        print(f"An error occurred while deleting data: {e}")
     finally:
         cursor.close()
         conn.close()
@@ -532,14 +514,11 @@ def update(id):
                 flash("Error: No tienes permiso para editar esta transacción.", 'danger')
         except Exception as e:
             conn.rollback()
-            print(f"An error occurred while updating data: {e}")
         finally:
             cursor.close()
             conn.close()
         return redirect(request.referrer or url_for('index'))
 
-
-# --- APIs de Gráficos (¡CORREGIDAS PARA POSTGRESQL!) ---
 @app.route('/api/chart-data/daily-flow')
 @login_required
 def daily_flow_chart_data():
@@ -550,13 +529,11 @@ def daily_flow_chart_data():
         today = datetime.date.today()
         mes, ano = f"{today.month:02d}", str(today.year)
     
-    # ¡CORRECCIÓN! to_char en lugar de strftime
     date_filter_sql_where = " WHERE to_char(fecha, 'YYYY') = %s AND to_char(fecha, 'MM') = %s AND user_id = %s "
     params = (ano, mes, user_id)
     
     conn = get_db_connection()
     cursor = conn.cursor()
-    # ¡CORRECCIÓN! to_char(fecha, 'DD')
     cursor.execute(
         "SELECT to_char(fecha, 'DD') as dia, tipo, SUM(monto) as total "
         "FROM transacciones" + date_filter_sql_where +
@@ -571,9 +548,9 @@ def daily_flow_chart_data():
     for row in data_db:
         dia_index = int(row['dia']) - 1
         if row['tipo'] == 'gasto':
-            gastos_data[dia_index] = row['total']
+            gastos_data[dia_index] = float(row['total']) # ¡Corrección a float!
         else:
-            ingresos_data[dia_index] = row['total']
+            ingresos_data[dia_index] = float(row['total']) # ¡Corrección a float!
     return jsonify({'labels': labels, 'datasets': [{'label': 'Gastos', 'data': gastos_data, 'backgroundColor': '#FF6384'}, {'label': 'Ingresos', 'data': ingresos_data, 'backgroundColor': '#36A2EB'}]})
 
 @app.route('/api/chart-data/categories')
@@ -586,7 +563,6 @@ def category_chart_data():
         today = datetime.date.today()
         mes, ano = f"{today.month:02d}", str(today.year)
 
-    # ¡CORRECCIÓN! to_char
     date_filter_sql_and = " AND to_char(fecha, 'YYYY') = %s AND to_char(fecha, 'MM') = %s AND user_id = %s "
     params = (ano, mes, user_id)
     
@@ -609,7 +585,8 @@ def category_chart_data():
             conn.close()
     
     labels = [row['categoria'] for row in gastos_por_categoria]
-    data = [row['total'] for row in gastos_por_categoria]
+    # ¡Corrección crítica aquí! Convertir a float para que JSON no falle
+    data = [float(row['total']) for row in gastos_por_categoria]
     return jsonify({'labels': labels, 'data': data})
 
 @app.route('/api/chart-data/annual-flow')
@@ -627,7 +604,6 @@ def annual_flow_chart_data():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # ¡CORRECCIÓN! to_char en lugar de strftime
         cursor.execute(
             "SELECT to_char(fecha, 'MM') as mes, SUM(monto) as total "
             "FROM transacciones "
@@ -636,7 +612,7 @@ def annual_flow_chart_data():
             (ano, user_id)
         )
         for row in cursor.fetchall():
-            gastos_por_mes[int(row['mes']) - 1] = float(row['total'])
+            gastos_por_mes[int(row['mes']) - 1] = float(row['total']) # Corrección a float
             
         cursor.execute(
             "SELECT to_char(fecha, 'MM') as mes, SUM(monto) as total "
@@ -646,7 +622,7 @@ def annual_flow_chart_data():
             (ano, user_id)
         )
         for row in cursor.fetchall():
-            ingresos_por_mes[int(row['mes']) - 1] = float(row['total'])
+            ingresos_por_mes[int(row['mes']) - 1] = float(row['total']) # Corrección a float
             
     except Exception as e:
         print(f"Error al obtener datos anuales: {e}")
